@@ -1,0 +1,102 @@
+###Load libraries
+library("Hmisc")
+library("corrplot")
+library("psych")
+
+###Create directories for outputs
+if(dir.exists("500kb")==F)(dir.create("500kb"))
+if(dir.exists("500kb/coef")==F)(dir.create("500kb/coef"))
+if(dir.exists("500kb/extra")==F)(dir.create("500kb/extra"))
+if(dir.exists("500kb/plots")==F)(dir.create("500kb/plots"))
+if(dir.exists("500kb/extra")==F)(dir.create("500kb/extra"))
+if(dir.exists("500kb/pvalues")==F)(dir.create("500kb/pvalues"))
+if(dir.exists("500kb/coef/left")==F)(dir.create("500kb/coef/left"))
+if(dir.exists("500kb/coef/right")==F)(dir.create("500kb/coef/right"))
+if(dir.exists("500kb/pvalues/left")==F)(dir.create("500kb/pvalues/left"))
+if(dir.exists("500kb/pvalues/right")==F)(dir.create("500kb/pvalues/right"))
+
+###Load ensembl annotation
+genes<-read.csv("/home/GRCh38.p10_IDs/grch38p10_ensemblv91_stable_id_version_mart_export.csv",header=T,stringsAsFactors=F)
+
+
+###Load deseq2 results
+tested<-read.csv("/home/catchme_analyses/paired_and_unpaired_genecode_v27_grch38p10.csv",header=T)
+tested<-subset(tested,!is.na(tested$padj)==T|!is.na(tested$padj_u)==T)
+sig<-tested[,c("id","concordant","both_tested","replicated")]
+sig<-subset(genes,genes$replicated==1)
+
+genes<-merge(genes,sig,by.x="gene_stable_id_version",by.y="id",all=T)
+nonsig<-subset(genes,genes$replicated==0)
+nonsig <-subset(nonsig, nonsig $gene_name%in%sig$gene_name==F)
+genes<-rbind(nonsig,sig)
+
+countsLeft<-read.table("/home/catchme_analyses/correlation/left_counts_mean_weighted.txt",header=T,stringsAsFactors=F,check.names=F)
+countsRight<-read.table("/home/catchme_analyses/correlation/right_counts_mean_weighted",header=T,stringsAsFactors=F,check.names=F)
+
+###Set up vectors for results
+p_left<-rep(NA,length(sig$id))
+p_right<-rep(NA,length(sig$id))
+p_left_v_right<-rep(NA,length(sig$id))
+n_region<-rep(NA,length(sig$id))
+testc<-rep(NA,length(sig$id))
+up<-rep(NA,length(sig$id))
+down<-rep(NA,length(sig$id))
+n_DE<-rep(NA,length(sig$id))
+n_biotype<-rep(NA,length(sig$id))
+
+###Loop to run correlations, collect variables, and plot
+for(i in 1:length(sig$gene_name)){
+	test<-sig$gene_name[i]
+	testc[i]<-sig$chromosome_scaffold[i]
+	chr<-subset(genes,genes$chromosome_scaffold==testc[i])
+	chr<-subset(chr,duplicated(chr$gene_name)==F)
+	g<-subset(chr,chr$gene_name==test)
+	
+	up[i]<-g$gene_end_bp+500000
+	down[i]<-g$gene_start_bp-500000
+	region<-subset(chr,chr$gene_start_bp>=down[i]&chr$gene_end_bp<=up[i])
+	region<-region[order(region$gene_start_bp),]
+	region$order<-c(1:nrow(region))
+
+	region<-subset(region,region$gene_stable_id_version%in%tested$id)
+	countsL<-countsLeft[row.names(countsLeft)%in%region$gene_stable_id_version==T,]
+	row.names(countsL)<-region$gene_name
+	countsR<-countsRight[row.names(countsRight)%in%region$gene_stable_id_version==T,]
+	row.names(countsR)<-region$gene_name
+
+	cml<-rcorr(as.matrix(t(countsL)),type="spearman")
+	cmr<-rcorr(as.matrix(t(countsR)),type="spearman")
+
+	lsig<-cortest.normal(cml$r,n1=dim(countsL)[2],fisher=T)
+	rsig<-cortest.normal(cmr$r,n1=dim(countsR)[2],fisher=T)
+	l_r_diff<-cortest.normal(R1=cml$r,R2=cmr$r,n1=dim(countsL)[2],n2=dim(countsR)[2],fisher=T)
+	p_left[i]<-lsig$prob
+	p_right[i]<-rsig$prob
+	p_left_v_right[i]<-l_r_diff$prob
+	n_region[i]<-nrow(region)
+	
+	extra<-which(region$gene_stable_id_version%in%sig$gene_stable_id_version)
+	extra_out<-region[extra,]
+	n_DE[i]<-nrow(extra_out)
+	n_biotype[i]<-dim(table(extra_out$gene_type))
+	if(dim(table(extra_out$gene_type))>1)(write.table(extra_out,file=paste("/home/catchme_analyses/correlation/500kb/extra/",test,"_extra_transcripts_500kb.txt",sep=""),quote=F,row.names=T,col.names=NA,dec="."))
+	
+	png(paste("/home/catchme_analyses/correlation/500kb/plots/",test,"_500mb.png",sep=""))
+	lplot<-corrplot(cml$r,method="square",type="lower",order="original",tl.pos="lt")
+	lplot<-corrplot(cmr$r,method="square",type="upper",order="original",add=T,tl.pos="lt",cl.pos="n")
+	dev.off()
+
+	write.table(cml$r,file=paste("/home/catchme_analyses/correlation/500kb/coef/left/",test,"_coefficients_left_500kb.txt",sep=""),quote=F,row.names=T,col.names=NA,dec=".")
+	write.table(cmr$r,file=paste("/home/catchme_analyses/correlation/500kb/coef/right/",test,"_coefficients_right_500kb.txt",sep=""),quote=F,row.names=T,col.names=NA,dec=".")
+	write.table(cml$P,file=paste("/home/catchme_analyses/correlation/500kb/pvalues/left/",test,"_pvalues_left_500kb.txt",sep=""),quote=F,row.names=T,col.names=NA,dec=".")
+	write.table(cmr$P,file=paste("/home/catchme_analyses/correlation/500kb/pvalues/right/",test,"_pvalues_right_500kb.txt",sep=""),quote=F,row.names=T,col.names=NA,dec=".")
+}
+
+out<-data.frame(sig[,c(1,4:7,9:10)],testc,up,down,n_region,p_left,p_right,p_left_v_right,n_DE,n_biotype)
+out$p_left_bon<-p.adjust(out$p_left,method="bonferroni")
+out$p_right_bon<-p.adjust(out$p_right,method="bonferroni")
+out$p_left_v_right_bon<-p.adjust(out$p_left_v_right,method="bonferroni")
+out$p_left_fdr<-p.adjust(out$p_left,method="fdr")
+out$p_right_fdr<-p.adjust(out$p_right,method="fdr")
+out$p_left_v_right_fdr<-p.adjust(out$p_left_v_right,method="fdr")
+write.table(out,file="/home/catchme_analyses/correlation/500kb/summary_transcription_disequilibrium_500kb.txt",row.names=F,quote=F,sep="\t")
