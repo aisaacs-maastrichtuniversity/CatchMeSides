@@ -7,6 +7,6 @@ The paper describes a large RNA sequencing dataset generated from atrial tissue 
 The currently included scripts are:
 1. Rscript_catchme_sides_deseq2.txt, which was used to generate the left/right differential expression comparisons in the paired and unpaired samples.
 2. Rscript_catchme_sides_dexseq.txt, which was used to generate the left/right differential exon usage comparisons in the paired and unpaired samples.
-3. Rscript_catchme_transcription_disequilibrium_500kb_window.txt, which was used to calculate correlation matrices in the regions including significantly DE transcripts (± 500 kb) in both atrial sides and compare each side to the null correltion matrix and compare the sides.
+3. Rscript_catchme_transcription_disequilibrium_500kb_window.txt, which was used to calculate correlation matrices in the regions including significantly DE transcripts (± 500 kb) in both atrial sides and compare each side to the null correlation matrix and compare the side-specific matrices.
 
 ***2024-10-05: This repository is being actively updated and more of the analysis scripts will be included.***
