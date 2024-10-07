@@ -1,0 +1,62 @@
+###Load Libraries
+
+library("DESeq2")
+library("biomaRt")
+
+###Load phenotypes
+load("/data/catchme/catchme_phenotypes.RData")
+
+###Load count data
+load("data/catchme/rna/catchme_genecode_v39_GRCh38p13_counts.RData")
+
+###Delete duplicates and sequencing stats outliers
+dups<-c(4057,4080,4069,3060,5064)
+data<-subset(data,data$catchme_id%in%dups==F)
+
+stat<-c(4014,4015,5011,1012,3056,3063,3072,3073,3074)
+data<-subset(data,data$catchme_id%in%stat==F)
+
+###Separate paired/unpaired samples
+paired<-subset(data,data$paired==1)
+unpaired<-subset(data,data$paired==0)
+
+samplePaired<-paired[,c("catchme_id","tissuelocation","batch.x")]
+sampleUnpaired<-unpaired[,c("catchme_id","tissuelocation","age","gender","rhythm","heartfailure","batch.x")]
+sampleUnpaired<-na.omit(sampleUnpaired)
+
+countsPaired<-counts[,which(colnames(counts)%in%samplePaired$catchme_id==T)]
+countsUnpaired<-counts[,which(colnames(counts)%in%sampleUnpaired$catchme_id==T)]
+
+###Analyze paired samples in DESeq2
+dds<-DESeqDataSetFromMatrix(countData=countsPaired,colData=samplePaired,design=~tissuelocation+batch.x)
+dds<-DESeq(dds)
+paired_out<-results(dds,contrast=c("tissuelocation","LeftAtrialAppendage","RightAtrialAppendage"))
+paired_out<-paired_out[order(paired_out$padj),]
+paired_out$fc<-2^paired_out$log2FoldChange
+paired_out<-data.frame(paired_out)
+write.csv(paired_out,file="left_vs_right_paired_genecode_v27_grch38p10.csv",quote=F)
+
+###Analyze unpaired samples in DESeq2
+dds<-DESeqDataSetFromMatrix(countData=countsUnpaired,colData=sampleUnpaired,design=~tissuelocation+gender+age+rhythm+heartfailure+batch.x)
+dds<-DESeq(dds)
+unpaired_out<-results(dds,contrast=c("tissuelocation","LeftAtrialAppendage","RightAtrialAppendage"))
+unpaired_out<-unpaired_out[order(unpaired_out$padj),]
+unpaired_out$fc<-2^unpaired_out$log2FoldChange
+unpaired_out<-data.frame(unpaired_out)
+write.csv(unpaired_out,file="left_vs_right_unpaired_genecode_v27_grch38p10.csv",quote=F)
+
+###Merge paired and unpaired results
+names(unpaired_out)<-paste(names(unpaired_out),"_u",sep="")
+out<-merge(paired_out,unpaired_out,by="row.names")
+names(out)[1]<-"id"
+out$id2<-substr(out$id,1,unlist(gregexpr("\\.",out$id))-1)
+out$concordant[(out$log2FoldChange<0&out$log2FoldChange_u<0)|(out$log2FoldChange>0&out$log2FoldChange_u>0)]<-1
+out$concordant[(out$log2FoldChange<0&out$log2FoldChange_u>0)|(out$log2FoldChange>0&out$log2FoldChange_u<0)]<-0
+out$both_tested[!is.na(out$padj)==T&!is.na(out$padj_u)==T]<-1
+out$both_tested[is.na(out$padj)==T|is.na(out$padj_u)==T]<-0
+out$replicated[out$both_tested==1&out$concordant==1&out$padj<=0.05&out$padj_u<=0.05]<-1
+out$replicated[out$both_tested==1&(out$concordant!=1|out$padj>0.05|out$padj_u>0.05)]<-0
+write.csv(out,file="paired_and_unpaired_genecode_v27_grch38p10.csv",quote=F)
+
+
+

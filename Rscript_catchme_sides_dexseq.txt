@@ -1,0 +1,61 @@
+###Load Libraries
+library("DESeq2")
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+library("DEXSeq")
+
+###Load phenotypes
+load("/data/catchme/catchme_phenotypes.RData")
+
+###Specify location of count files
+counts<-dir("/data/catchme/rna/star_GRCh38.p10/dexseq_counts/")
+
+###Delete duplicates and sequencing stats outliers
+dups<-c(4057,4080,4069,3060,5064)
+data<-subset(data,data$catchme_id%in%dups==F)
+
+stat<-c(4014,4015,5011,1012,3056,3063,3072,3073,3074)
+data<-subset(data,data$catchme_id%in%stat==F)
+
+###Separate paired/unpaired samples
+paired<-subset(data,data$paired==1)
+unpaired<-subset(data,data$paired==0)
+
+samplePaired<-paired[,c("catchme_id","tissuelocation","batch.x")]
+sampleUnpaired<-unpaired[,c("catchme_id","tissuelocation","age","gender","rhythm","heartfailure","batch.x")]
+sampleUnpaired<-na.omit(sampleUnpaired)
+
+###Get exon counts
+countFiles<-data.frame(counts=counts,catchme_id=substr(counts,1,4))
+countsPaired<-subset(countFiles,countFiles$catchme_id%in%samplePaired$catchme_id==T)
+countsPaired<-paste("/data/catchme/rna/star_GRCh38.p10/dexseq_counts",countsPaired$counts,sep="/")
+
+countsUnpaired<-subset(countFiles,countFiles$catchme_id%in%sampleUnpaired$catchme_id==T)
+countsUnpaired<-paste("/data/catchme/rna/star_GRCh38.p10/dexseq_counts",countsUnpaired$counts,sep="/")
+
+###Run DEXSeq for paired samples
+dxd<-DEXSeqDataSetFromHTSeq(countsPaired,sampleData=samplePaired,"/data/catchme/rna/gencodegenes_GRCh38.p10.DEXSeq.gff",design=~tissuelocation+exon+batch.x+tissuelocation:exon)
+dxd<-estimateSizeFactors(dxd)
+dxd<-estimateDispersions(dxd)
+	###Plot dispersion?
+	png("dispersion_catchme_paired_dexseq.png")
+	plotDispEsts(dxd)
+	dev.off()
+dxd<-testForDEU(dxd,reducedModel=~tissuelocation+exon+batch.x)
+dxd<-estimateExonFoldChanges(dxd,fitExpToVar="tissuelocation")
+dxr1<-DEXSeqResults(dxd)
+save(dxr1,file="dexseq_catchme_paired_results.RData")
+
+###Run DEXSeq for unpaired samples
+dxd<-DEXSeqDataSetFromHTSeq(countsUnpaired,sampleData=sampleUnpaired,"/data/catchme/rna/gencodegenes_GRCh38.p10.DEXSeq.gff",design=~tissuelocation+age+gender+batch.x+rhythm+heartfailure+exon+tissuelocation:exon)
+dxd<-estimateSizeFactors(dxd)
+dxd<-estimateDispersions(dxd)
+	###Plot dispersion?
+	png("dispersion_catchme_unpaired_dexseq.png")
+	plotDispEsts(dxd)
+	dev.off()
+dxd<-testForDEU(dxd,reducedModel=~tissuelocation+age+gender+batch.x+rhythm+heartfailure+exon)
+dxd<-estimateExonFoldChanges(dxd,fitExpToVar="tissuelocation")
+dxr2<-DEXSeqResults(dxd)
+save(dxr2,file="dexseq_catchme_unpaired_results.RData")
+
